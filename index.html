@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <title>互動畫作展示</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: #222;
+    }
+    #container {
+      width: 100vw;
+      height: 100vh;
+      position: relative;
+      touch-action: none;
+      background: #222;
+      overflow: hidden;
+    }
+    #artwork {
+      position: absolute;
+      left: 0; top: 0;
+      will-change: transform;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-drag: none;
+      transition: box-shadow 0.2s;
+      box-shadow: 0 4px 32px #000a;
+      z-index: 0;
+    }
+    .hotspot {
+      position: absolute;
+      width: 22px;
+      height: 22px;
+      background: #00ffd5;
+      border-radius: 50%;
+      border: 3px solid #fff;
+      box-shadow: 0 2px 10px #0004;
+      pointer-events: auto;
+      cursor: pointer;
+      transition: border 0.2s, box-shadow 0.2s;
+      z-index: 2;
+      display: none;
+    }
+    .hotspot:active {
+      border-color: #ff8300;
+      box-shadow: 0 0 0 4px #ffd70066;
+    }
+    #popup {
+      position: fixed;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%,-50%);
+      background: #fff;
+      color: #333;
+      border-radius: 12px;
+      box-shadow: 0 8px 40px #0007;
+      padding: 24px 16px 16px 16px;
+      max-width: 90vw;
+      max-height: 70vh;
+      z-index: 10;
+      font-size: 1.2em;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+    }
+    #popup h3 {
+      margin: 0 0 10px 0;
+      font-size: 1.15em;
+    }
+    #popup button {
+      background: #ffd700;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 22px;
+      margin-top: 8px;
+      font-size: 1em;
+      cursor: pointer;
+    }
+    @media (max-width: 600px) {
+      #popup { font-size: 1em; padding: 14px 7px 10px 7px;}
+    }
+  </style>
+</head>
+<body>
+<div id="container">
+  <img id="artwork" src="images/artwork.jpg" alt="畫作">
+  <!-- 熱點 -->
+  <div class="hotspot" id="hotspot1"
+    data-left="50" data-top="25" aria-label="唐玄宗"></div>
+  <div class="hotspot" id="hotspot2"
+    data-left="09" data-top="25" aria-label="球門"></div>
+  <div class="hotspot" id="hotspot3"
+    data-left="26" data-top="76" aria-label="馬球棍"></div>
+</div>
+<!-- 彈窗 -->
+<div id="popup" tabindex="-1">
+  <h3 id="popup-title"></h3>
+  <div id="popup-content"></div>
+  <button onclick="closePopup()">關閉</button>
+</div>
+<script>
+  // --- 畫作自動左右平移參數 ---
+  const container = document.getElementById('container');
+  const artwork = document.getElementById('artwork');
+  let imgWidth = 0, imgHeight = 0, scale = 1, offsetX = 0, offsetY = 0;
+  let dragging = false;
+  let autoMove = true, autoDir = 1; // 1=右, -1=左
+
+  // 熱點資料
+  const hotspots = {
+    'hotspot1': {
+      title: '唐玄宗',
+      content: '唐明皇（即唐玄宗）李隆基偕妃嬪，共十六名騎者，各手持偃月形球杖擊球。'
+    },
+    'hotspot2': {
+      title: '球門',
+      content: '球場兩端分別竪立球門，各有二人把守，其餘騎者馳騁場中。'
+    }, 
+    'hotspot3': {
+      title: '馬球棍',
+      content: '騎者手持偃月形球杖擊球。'
+    } 
+  };
+
+  // 圖片鋪滿容器（cover）
+  artwork.onload = function () {
+    imgWidth = artwork.naturalWidth;
+    imgHeight = artwork.naturalHeight;
+    fitImage();
+    setHotspots();
+    document.querySelectorAll('.hotspot').forEach(hs => hs.style.display = 'block');
+  };
+  function fitImage() {
+    let cw = container.clientWidth, ch = container.clientHeight;
+    let scaleX = cw / imgWidth;
+    let scaleY = ch / imgHeight;
+    scale = Math.max(scaleX, scaleY); // cover
+    // 讓圖片置中
+    let imgDisplayWidth = imgWidth * scale;
+    let imgDisplayHeight = imgHeight * scale;
+    offsetX = (cw - imgDisplayWidth) / 2;
+    offsetY = (ch - imgDisplayHeight) / 2;
+    setTransform();
+    setHotspots();
+  }
+  function setTransform() {
+    artwork.style.width = imgWidth * scale + 'px';
+    artwork.style.height = imgHeight * scale + 'px';
+    artwork.style.transform = `translate(${offsetX}px, ${offsetY}px)`;
+  }
+
+  // 自動平移（只針對超長橫幅畫作有意義）
+  function autoPan() {
+    if (!autoMove || dragging) return;
+    let cw = container.clientWidth;
+    let imgDisplayWidth = imgWidth * scale;
+    if (imgDisplayWidth <= cw) return; // 無需平移
+    let maxOffset = 0;
+    let minOffset = cw - imgDisplayWidth;
+    offsetX -= autoDir * 0.8;
+    if (offsetX < minOffset) { offsetX = minOffset; autoDir = -autoDir; }
+    if (offsetX > maxOffset) { offsetX = maxOffset; autoDir = -autoDir; }
+    setTransform();
+    setHotspots();
+  }
+  setInterval(autoPan, 16);
+
+  // 手勢縮放與拖曳
+  let startX=0, startY=0, lastOffsetX=0, lastOffsetY=0, startDist=0, startScale=1;
+  let pointers = [];
+  container.addEventListener('pointerdown', function(e){
+    if (e.target.classList.contains('hotspot')) return;
+    dragging = true;
+    autoMove = false;
+    startX = e.clientX; startY = e.clientY;
+    lastOffsetX = offsetX; lastOffsetY = offsetY;
+    container.setPointerCapture(e.pointerId);
+    pointers.push(e);
+  });
+  container.addEventListener('pointermove', function(e){
+    pointers = pointers.map(p => p.pointerId === e.pointerId ? e : p);
+    if(pointers.length === 1 && dragging) {
+      offsetX = lastOffsetX + (e.clientX - startX);
+      offsetY = lastOffsetY + (e.clientY - startY);
+      clampOffsets();
+      setTransform();
+      setHotspots();
+    }
+    if (pointers.length === 2) {
+      dragging = true;
+      autoMove = false;
+      let dx = pointers[1].clientX - pointers[0].clientX;
+      let dy = pointers[1].clientY - pointers[0].clientY;
+      let dist = Math.sqrt(dx*dx + dy*dy);
+      if (!startDist) {
+        startDist = dist;
+        startScale = scale;
+      } else {
+        let newScale = Math.max(0.5, Math.min(3, startScale * dist / startDist));
+        // 計算中心點
+        let centerX = (pointers[0].clientX + pointers[1].clientX) / 2;
+        let centerY = (pointers[0].clientY + pointers[1].clientY) / 2;
+        // 保持縮放中心
+        let prevRelX = (centerX - offsetX) / scale;
+        let prevRelY = (centerY - offsetY) / scale;
+        scale = newScale;
+        offsetX = centerX - prevRelX * scale;
+        offsetY = centerY - prevRelY * scale;
+        clampOffsets();
+        setTransform();
+        setHotspots();
+      }
+    }
+  });
+  container.addEventListener('pointerup', function(e){
+    pointers = pointers.filter(p=>p.pointerId!==e.pointerId);
+    if (pointers.length < 2) startDist = 0;
+    dragging = false;
+    setTimeout(()=>{autoMove=true}, 2000);
+  });
+  container.addEventListener('pointercancel', function(e){
+    pointers = pointers.filter(p=>p.pointerId!==e.pointerId);
+    if (pointers.length < 2) startDist = 0;
+    dragging = false;
+    setTimeout(()=>{autoMove=true}, 2000);
+  });
+
+  function clampOffsets() {
+    let cw = container.clientWidth, ch = container.clientHeight;
+    let imgDisplayWidth = imgWidth * scale, imgDisplayHeight = imgHeight * scale;
+    let minOffsetX = cw - imgDisplayWidth;
+    let minOffsetY = ch - imgDisplayHeight;
+    // 不超出邊界
+    if (imgDisplayWidth <= cw) offsetX = (cw - imgDisplayWidth) / 2;
+    else if (offsetX > 0) offsetX = 0;
+    else if (offsetX < minOffsetX) offsetX = minOffsetX;
+    if (imgDisplayHeight <= ch) offsetY = (ch - imgDisplayHeight) / 2;
+    else if (offsetY > 0) offsetY = 0;
+    else if (offsetY < minOffsetY) offsetY = minOffsetY;
+  }
+
+  // 熱點位置設定（固定圓點，不縮放）
+  function setHotspots() {
+    document.querySelectorAll('.hotspot').forEach(hs=>{
+      let left = parseFloat(hs.dataset.left)/100, top = parseFloat(hs.dataset.top)/100;
+      let imgDisplayWidth = imgWidth * scale, imgDisplayHeight = imgHeight * scale;
+      // artwork 左上角在容器的位置
+      let baseX = offsetX, baseY = offsetY;
+      // 計算熱點圓心位置
+      let px = baseX + imgDisplayWidth * left;
+      let py = baseY + imgDisplayHeight * top;
+      // 讓圓點中心對齊（22px/2=11）
+      hs.style.left = (px - 11) + 'px';
+      hs.style.top = (py - 11) + 'px';
+    });
+  }
+
+  // 點擊熱點顯示詳情
+  document.querySelectorAll('.hotspot').forEach(hs=>{
+    hs.addEventListener('pointerdown', e=>{
+      e.stopPropagation();
+      let id = hs.id;
+      showPopup(hotspots[id].title, hotspots[id].content);
+    });
+  });
+
+  // 彈窗顯示
+  function showPopup(title, content) {
+    document.getElementById('popup-title').innerText = title;
+    document.getElementById('popup-content').innerText = content;
+    document.getElementById('popup').style.display = 'flex';
+    document.getElementById('popup').focus();
+    autoMove = false;
+  }
+  function closePopup() {
+    document.getElementById('popup').style.display = 'none';
+    setTimeout(()=>{autoMove=true}, 800);
+  }
+  document.addEventListener('keydown', function(e){
+    if(e.key==='Escape') closePopup();
+  });
+
+  window.addEventListener('resize', fitImage);
+
+</script>
+</body>
+</html>
